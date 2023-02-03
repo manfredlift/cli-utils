@@ -171,6 +171,10 @@ var _ = Describe("E2E", func() {
 					dependsOnTest(ctx, c, invConfig, inventoryName, namespace.GetName())
 				})
 
+				It("ObjectPriority", func() {
+					objectPriorityTest(ctx, c, invConfig, inventoryName, namespace.GetName())
+				})
+
 				It("ApplyTimeMutation", func() {
 					mutationTest(ctx, c, invConfig, inventoryName, namespace.GetName())
 				})

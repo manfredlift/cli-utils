@@ -14,14 +14,15 @@ import (
 	"sigs.k8s.io/cli-utils/pkg/apply/event"
 	"sigs.k8s.io/cli-utils/pkg/inventory"
 	"sigs.k8s.io/cli-utils/pkg/object"
+	"sigs.k8s.io/cli-utils/pkg/object/objectpriority"
 	"sigs.k8s.io/cli-utils/pkg/testutil"
 	"sigs.k8s.io/cli-utils/test/e2e/e2eutil"
 	"sigs.k8s.io/cli-utils/test/e2e/invconfig"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func dependsOnTest(ctx context.Context, c client.Client, invConfig invconfig.InventoryConfig, inventoryName, namespaceName string) {
-	By("apply resources in order based on object priority level annotation")
+func objectPriorityTest(ctx context.Context, c client.Client, invConfig invconfig.InventoryConfig, inventoryName, namespaceName string) {
+	By("apply resources in order based on priority level annotation")
 	applier := invConfig.ApplierFactoryFunc()
 
 	inv := invConfig.InvWrapperFunc(invConfig.FactoryFunc(inventoryName, namespaceName, "test"))
@@ -34,16 +35,18 @@ func dependsOnTest(ctx context.Context, c client.Client, invConfig invconfig.Inv
 
 	pod1Obj := e2eutil.ManifestToUnstructured(pod1)
 	pod1Obj = e2eutil.WithNamespace(pod1Obj, namespace1Name)
-	pod1Obj = e2eutil.WithDependsOn(pod1Obj, fmt.Sprintf("/namespaces/%s/Pod/pod3", namespace1Name))
 
 	pod2Obj := e2eutil.ManifestToUnstructured(pod2)
 	pod2Obj = e2eutil.WithNamespace(pod2Obj, namespace2Name)
+	err := objectpriority.WriteAnnotation(pod2Obj, 30)
+	Expect(err).NotTo(HaveOccurred())
 
 	pod3Obj := e2eutil.ManifestToUnstructured(pod3)
 	pod3Obj = e2eutil.WithNamespace(pod3Obj, namespace1Name)
-	pod3Obj = e2eutil.WithDependsOn(pod3Obj, fmt.Sprintf("/namespaces/%s/Pod/pod2", namespace2Name))
+	err = objectpriority.WriteAnnotation(pod3Obj, 20)
+	Expect(err).NotTo(HaveOccurred())
 
-	// Dependency order: pod1 -> pod3 -> pod2
+	// Dependency order (from lowest priority to highest): pod1 -> pod3 -> pod2
 	// Apply order: pod2, pod3, pod1
 	resources := []*unstructured.Unstructured{
 		namespace1Obj,
