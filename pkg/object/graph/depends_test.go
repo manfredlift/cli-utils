@@ -99,6 +99,22 @@ metadata:
   name: cron-tab-02
   namespace: test-namespace
 `,
+		"cm": `
+apiVersion: v1
+data:
+  test: test
+kind: ConfigMap
+metadata:
+  name: test-cm
+  namespace: test-namespace
+`,
+		"clusterrole": `
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: test-rolebinding
+  namespace: test-namespace
+`,
 	}
 )
 
@@ -642,6 +658,74 @@ func TestDependencyGraph(t *testing.T) {
 					},
 					testutil.ToIdentifier(t, resources["secret"]): {
 						testutil.ToIdentifier(t, resources["deployment"]),
+					},
+				},
+			},
+		},
+		"all kind of edges": {
+			objs: object.UnstructuredSet{
+				testutil.Unstructured(t, resources["crontab1"]),
+				testutil.Unstructured(t, resources["namespace"]),
+				testutil.Unstructured(t, resources["crd"]),
+				testutil.Unstructured(t, resources["secret"]),
+				testutil.Unstructured(t, resources["deployment"],
+					testutil.AddDependsOn(t, testutil.ToIdentifier(t, resources["secret"]))),
+				testutil.Unstructured(t, resources["cm"],
+					testutil.AddPriorityLevel(t, 10)),
+				testutil.Unstructured(t, resources["clusterrole"],
+					testutil.AddPriorityLevel(t, 20)),
+			},
+			graph: &Graph{
+				edges: map[object.ObjMetadata]object.ObjMetadataSet{
+					testutil.ToIdentifier(t, resources["crontab1"]): {
+						testutil.ToIdentifier(t, resources["crd"]),
+						testutil.ToIdentifier(t, resources["namespace"]),
+						testutil.ToIdentifier(t, resources["cm"]),
+					},
+					testutil.ToIdentifier(t, resources["crd"]):       {},
+					testutil.ToIdentifier(t, resources["namespace"]): {},
+					testutil.ToIdentifier(t, resources["secret"]): {
+						testutil.ToIdentifier(t, resources["namespace"]),
+						testutil.ToIdentifier(t, resources["cm"]),
+					},
+					testutil.ToIdentifier(t, resources["deployment"]): {
+						testutil.ToIdentifier(t, resources["namespace"]),
+						testutil.ToIdentifier(t, resources["secret"]),
+						testutil.ToIdentifier(t, resources["cm"]),
+					},
+					testutil.ToIdentifier(t, resources["cm"]): {
+						testutil.ToIdentifier(t, resources["namespace"]),
+						testutil.ToIdentifier(t, resources["clusterrole"]),
+					},
+					testutil.ToIdentifier(t, resources["clusterrole"]): {
+						testutil.ToIdentifier(t, resources["crd"]),
+						testutil.ToIdentifier(t, resources["namespace"]),
+					},
+				},
+				reverseEdges: map[object.ObjMetadata]object.ObjMetadataSet{
+					testutil.ToIdentifier(t, resources["crd"]): {
+						testutil.ToIdentifier(t, resources["crontab1"]),
+						testutil.ToIdentifier(t, resources["clusterrole"]),
+					},
+					testutil.ToIdentifier(t, resources["namespace"]): {
+						testutil.ToIdentifier(t, resources["crontab1"]),
+						testutil.ToIdentifier(t, resources["deployment"]),
+						testutil.ToIdentifier(t, resources["secret"]),
+						testutil.ToIdentifier(t, resources["cm"]),
+						testutil.ToIdentifier(t, resources["clusterrole"]),
+					},
+					testutil.ToIdentifier(t, resources["crontab1"]): {},
+					testutil.ToIdentifier(t, resources["secret"]): {
+						testutil.ToIdentifier(t, resources["deployment"]),
+					},
+					testutil.ToIdentifier(t, resources["deployment"]): {},
+					testutil.ToIdentifier(t, resources["cm"]): {
+						testutil.ToIdentifier(t, resources["secret"]),
+						testutil.ToIdentifier(t, resources["deployment"]),
+						testutil.ToIdentifier(t, resources["crontab1"]),
+					},
+					testutil.ToIdentifier(t, resources["clusterrole"]): {
+						testutil.ToIdentifier(t, resources["cm"]),
 					},
 				},
 			},

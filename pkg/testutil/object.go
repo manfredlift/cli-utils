@@ -14,6 +14,7 @@ import (
 	"k8s.io/kubectl/pkg/scheme"
 	"sigs.k8s.io/cli-utils/pkg/object"
 	"sigs.k8s.io/cli-utils/pkg/object/dependson"
+	"sigs.k8s.io/cli-utils/pkg/object/objectpriority"
 )
 
 // OwningInventoryKey is the annotation key indicating the inventory owning an object.
@@ -158,5 +159,30 @@ func (d dependsOnMutator) Mutate(u *unstructured.Unstructured) {
 	err := dependson.WriteAnnotation(u, d.deps)
 	if !assert.NoError(d.t, err) {
 		d.t.FailNow()
+	}
+}
+
+// AddPriorityLevel returns a testutil.Mutator which adds the passed priority level as a
+// priority-level annotation to the object which is mutated.
+func AddPriorityLevel(t *testing.T, priority uint64) Mutator {
+	return priorityLevelMutator{
+		t:             t,
+		priorityLevel: priority,
+	}
+}
+
+// priorityLevelMutator encapsulates fields for adding priority-level annotation
+// to a test object. Implements the Mutator interface.
+type priorityLevelMutator struct {
+	t             *testing.T
+	priorityLevel uint64
+}
+
+// Mutate writes a priority-level annotation on the supplied object. The value of
+// the annotation is the priority-level.
+func (p priorityLevelMutator) Mutate(u *unstructured.Unstructured) {
+	err := objectpriority.WriteAnnotation(u, p.priorityLevel)
+	if !assert.NoError(p.t, err) {
+		p.t.FailNow()
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/cli-utils/pkg/object"
 	"sigs.k8s.io/cli-utils/pkg/object/dependson"
 	"sigs.k8s.io/cli-utils/pkg/object/mutation"
+	"sigs.k8s.io/cli-utils/pkg/object/objectpriority"
 	"sigs.k8s.io/cli-utils/pkg/object/validation"
 	"sigs.k8s.io/cli-utils/pkg/ordering"
 )
@@ -41,6 +42,9 @@ func DependencyGraph(objs object.UnstructuredSet) (*Graph, error) {
 		errors = append(errors, err)
 	}
 	if err := addApplyTimeMutationEdges(g, objs, ids); err != nil {
+		errors = append(errors, err)
+	}
+	if err := addObjectPriorityEdges(g, objs, ids); err != nil {
 		errors = append(errors, err)
 	}
 	if len(errors) > 0 {
@@ -322,4 +326,77 @@ func addNamespaceEdges(g *Graph, objs object.UnstructuredSet, ids object.ObjMeta
 			}
 		}
 	}
+}
+
+// addObjectPriorityEdges updates the graph with edges from objects
+// with an explicit "priority-level" annotation.
+// This is an alternative to "depends-on" annotations to define the order in which objects should be applied/pruned.
+// E.g. setting a "priority-level" annotation on a ConfigMap, would mean it gets applied before all the Deployments
+// rather than having to set an explicit depends-on annotation from every Deployment to the ConfigMap.
+// The objs and ids must match in order and length (optimization).
+func addObjectPriorityEdges(g *Graph, objs object.UnstructuredSet, ids object.ObjMetadataSet) error {
+	var errors []error
+	var hasAnnotations bool
+
+	// First pass check if there's any objects with the relevant annotations, if not we can
+	// skip adding priority edges, to match the default behaviour of the dependency graph.
+	// Any time we get to the second loop we assume a high static priority for namespaces and
+	// environments and that would result in extra edges in the graph even if no objects had
+	// the relevant annotation.
+	for _, obj := range objs {
+		hasAnnotations = objectpriority.HasAnnotation(obj)
+		if hasAnnotations {
+			break
+		}
+	}
+
+	// if there's only one priority level then we can return early as we don't need to add any new edges
+	if !hasAnnotations {
+		return nil
+	}
+
+	// map priority levels to objects
+	priorityLevels := []uint64{0}
+	priorityLevelObjs := map[uint64]object.ObjMetadataSet{0: {}}
+	for i, obj := range objs {
+		id := ids[i]
+		priority, err := objectpriority.ReadAnnotation(obj)
+		if err != nil {
+			klog.V(3).Infof("failed to parse priority from: %s: %v", id, err)
+			errors = append(errors, validation.NewError(err, id))
+		}
+
+		// if for namespaces or CRDs the priority was not overwritten in the annotation, then use the static value
+		staticPriority, found := objectpriority.GetStaticPriority(obj)
+		if found && priority == 0 {
+			priority = staticPriority
+		}
+
+		if _, found := priorityLevelObjs[priority]; !found {
+			priorityLevels = append(priorityLevels, priority)
+			priorityLevelObjs[priority] = object.ObjMetadataSet{}
+		}
+
+		priorityLevelObjs[priority] = append(priorityLevelObjs[priority], id)
+	}
+
+	// sort priority levels
+	sort.Slice(priorityLevels, func(i, j int) bool {
+		return priorityLevels[i] < priorityLevels[j]
+	})
+
+	// add edges from lower priority objects to the next higher priority objects
+	for i := 1; i < len(priorityLevels); i++ {
+		lowerPriority := priorityLevels[i-1]
+		higherPriority := priorityLevels[i]
+
+		for _, from := range priorityLevelObjs[lowerPriority] {
+			for _, to := range priorityLevelObjs[higherPriority] {
+				klog.V(3).Infof("adding edge from: %s to: %s", from, to)
+				g.AddEdge(from, to)
+			}
+		}
+	}
+
+	return multierror.Wrap(errors...)
 }
